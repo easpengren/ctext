@@ -9,3 +9,9 @@
 .cxx/
 **/build/
 /home/ericaspen/projects/ctext/.vscode/mcp.json
+
+# MemPalace per-project files (issue #185)
+mempalace.yaml
+entities.json
+
+.vscode/settings.json
