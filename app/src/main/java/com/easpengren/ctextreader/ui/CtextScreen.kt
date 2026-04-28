@@ -30,6 +30,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -43,6 +44,7 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun CtextScreen(viewModel: CtextViewModel) {
     val state by viewModel.uiState.collectAsState()
+    val uriHandler = LocalUriHandler.current
 
     CtextReaderContent(
         state = state,
@@ -56,6 +58,7 @@ fun CtextScreen(viewModel: CtextViewModel) {
         onOpenSearchResult = viewModel::openSearchResult,
         onSetInterfaceLanguage = viewModel::setInterfaceLanguage,
         onSetSimplifiedCharacters = viewModel::setSimplifiedCharacters,
+        onOpenExternalLink = { url -> uriHandler.openUri(url) },
         onOpenSubsection = viewModel::openSubsection,
         onOpenHistoryEntry = viewModel::openHistoryEntry,
         onNavigateBack = viewModel::navigateBack,
@@ -77,6 +80,7 @@ fun CtextReaderContent(
     onOpenSearchResult: (SearchTextBookDto) -> Unit,
     onSetInterfaceLanguage: (InterfaceLanguage) -> Unit,
     onSetSimplifiedCharacters: (Boolean) -> Unit,
+    onOpenExternalLink: (String) -> Unit,
     onOpenSubsection: (String) -> Unit,
     onOpenHistoryEntry: (ReaderHistoryEntry) -> Unit,
     onNavigateBack: () -> Unit,
@@ -185,6 +189,13 @@ fun CtextReaderContent(
                                     onCheckedChange = onSetSimplifiedCharacters
                                 )
                             }
+
+                            if (state.interfaceLanguage == InterfaceLanguage.ENGLISH) {
+                                Text(
+                                    text = "English mode affects API metadata only; source text remains original language.",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
                         }
                     }
                 }
@@ -233,6 +244,21 @@ fun CtextReaderContent(
                             }
                             state.directLink?.takeIf { it.isNotBlank() }?.let { link ->
                                 Text(text = "Direct Link: $link", style = MaterialTheme.typography.bodySmall)
+                            }
+                            state.englishReaderNotice?.let { note ->
+                                Text(text = note, style = MaterialTheme.typography.bodySmall)
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                state.directLink?.takeIf { it.isNotBlank() }?.let { link ->
+                                    OutlinedButton(onClick = { onOpenExternalLink(link) }) {
+                                        Text("Open Source Page")
+                                    }
+                                }
+                                state.englishPageLink?.takeIf { it.isNotBlank() }?.let { link ->
+                                    OutlinedButton(onClick = { onOpenExternalLink(link) }) {
+                                        Text("Open English Page")
+                                    }
+                                }
                             }
                             if (state.loading) {
                                 Box(modifier = Modifier.fillMaxWidth()) {

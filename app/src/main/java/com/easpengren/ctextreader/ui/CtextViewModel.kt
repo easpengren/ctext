@@ -25,6 +25,8 @@ data class CtextUiState(
     val statusText: String = "Idle",
     val currentUrn: String = "",
     val directLink: String? = null,
+    val englishPageLink: String? = null,
+    val englishReaderNotice: String? = null,
     val title: String = "",
     val paragraphs: List<String> = emptyList(),
     val subsections: List<String> = emptyList(),
@@ -206,40 +208,75 @@ class CtextViewModel @Inject constructor(
                     searchResults = emptyList()
                 )
             }
-            when (
-                val result = repository.searchTexts(
-                    query = query,
-                    language = _uiState.value.interfaceLanguage,
-                    simplified = _uiState.value.useSimplifiedCharacters
-                )
-            ) {
-                is ApiResult.Success -> {
-                    val results = result.data.books.filter { it.urn.isNotBlank() }
-                    _uiState.update {
-                        it.copy(
-                            loading = false,
-                            searchResults = results,
-                            statusText = "Found ${results.size} matching titles",
-                            error = if (results.isEmpty()) "No searchable titles matched your query." else null
-                        )
+            val candidates = buildSearchCandidates(query)
+            val language = _uiState.value.interfaceLanguage
+            val simplified = _uiState.value.useSimplifiedCharacters
+            val mergedResults = linkedMapOf<String, SearchTextBookDto>()
+            var lastError: ApiResult<*>? = null
+
+            for (candidate in candidates) {
+                when (
+                    val result = repository.searchTexts(
+                        query = candidate,
+                        language = language,
+                        simplified = simplified
+                    )
+                ) {
+                    is ApiResult.Success -> {
+                        result.data.books
+                            .asSequence()
+                            .filter { it.urn.isNotBlank() }
+                            .forEach { book ->
+                                mergedResults.putIfAbsent("${book.urn}|${book.title}", book)
+                            }
+                    }
+                    is ApiResult.ApiError,
+                    is ApiResult.TransportError -> {
+                        lastError = result
                     }
                 }
-                is ApiResult.ApiError -> {
-                    _uiState.update {
-                        it.copy(
-                            loading = false,
-                            error = "${result.code}: ${result.descriptionHtml}",
-                            statusText = "Search failed"
-                        )
-                    }
+
+                if (mergedResults.size >= 50) break
+            }
+
+            if (mergedResults.isNotEmpty()) {
+                val finalResults = mergedResults.values.take(50)
+                _uiState.update {
+                    it.copy(
+                        loading = false,
+                        searchResults = finalResults,
+                        statusText = "Found ${finalResults.size} matching titles",
+                        error = null
+                    )
                 }
-                is ApiResult.TransportError -> {
-                    _uiState.update {
-                        it.copy(
-                            loading = false,
-                            error = result.message,
-                            statusText = "Network error"
-                        )
+            } else {
+                when (val error = lastError) {
+                    is ApiResult.ApiError -> {
+                        _uiState.update {
+                            it.copy(
+                                loading = false,
+                                error = "${error.code}: ${error.descriptionHtml}",
+                                statusText = "Search failed"
+                            )
+                        }
+                    }
+                    is ApiResult.TransportError -> {
+                        _uiState.update {
+                            it.copy(
+                                loading = false,
+                                error = error.message,
+                                statusText = "Network error"
+                            )
+                        }
+                    }
+                    else -> {
+                        _uiState.update {
+                            it.copy(
+                                loading = false,
+                                error = "No searchable titles matched your query.",
+                                statusText = "No results"
+                            )
+                        }
                     }
                 }
             }
@@ -377,10 +414,18 @@ class CtextViewModel @Inject constructor(
         }
 
         _uiState.update {
+            val englishPageLink = directLink?.toEnglishPageUrl()
+            val notice = if (it.interfaceLanguage == InterfaceLanguage.ENGLISH) {
+                "CTP API returns source text; use Open English Page for available translations."
+            } else {
+                null
+            }
             it.copy(
                 loading = false,
                 currentUrn = urn,
                 directLink = directLink,
+                englishPageLink = englishPageLink,
+                englishReaderNotice = notice,
                 title = title,
                 paragraphs = fulltext,
                 subsections = subsections,
@@ -396,6 +441,63 @@ class CtextViewModel @Inject constructor(
                 canGoBack = navigationBackstack.isNotEmpty()
             )
         }
+    }
+
+    private fun buildSearchCandidates(rawQuery: String): List<String> {
+        val candidates = linkedSetOf<String>()
+        val trimmed = rawQuery.trim()
+        if (trimmed.isEmpty()) return emptyList()
+        candidates += trimmed
+
+        val normalized = trimmed
+            .lowercase()
+            .replace(Regex("[^\\p{L}\\p{N}\\s-]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+        val stopWords = setOf("find", "search", "for", "about", "the", "a", "an", "text", "book", "chapter", "please")
+        val cleaned = normalized
+            .split(" ")
+            .filter { it.isNotBlank() && it !in stopWords }
+            .joinToString(" ")
+            .trim()
+
+        if (cleaned.isNotEmpty()) {
+            candidates += cleaned
+            candidates += cleaned.split(" ")
+                .joinToString(" ") { token -> token.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() } }
+        }
+
+        val aliasMap = mapOf(
+            "analects" to "Analects",
+            "confucius analects" to "Analects",
+            "mencius" to "Mencius",
+            "mengzi" to "Mencius",
+            "dao de jing" to "Dao De Jing",
+            "tao te ching" to "Dao De Jing",
+            "zhuangzi" to "Zhuangzi",
+            "xunzi" to "Xunzi",
+            "han feizi" to "Han Feizi",
+            "i ching" to "Book of Changes",
+            "book of changes" to "Book of Changes",
+            "book of songs" to "Book of Songs",
+            "shijing" to "Book of Songs"
+        )
+
+        val sourceForAliases = if (cleaned.isNotEmpty()) cleaned else normalized
+        aliasMap.forEach { (needle, replacement) ->
+            if (sourceForAliases.contains(needle)) {
+                candidates += replacement
+            }
+        }
+
+        return candidates.filter { it.isNotBlank() }
+    }
+
+    private fun String.toEnglishPageUrl(): String {
+        val path = substringBefore('?').trimEnd('/')
+        val englishPath = if (path.endsWith("/ens")) path else "$path/ens"
+        return if (contains('?')) "$englishPath?${substringAfter('?')}" else englishPath
     }
 
     private fun persistPreferences(state: CtextUiState) {

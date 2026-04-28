@@ -41,6 +41,7 @@ class CtextReaderContentTest {
                 onOpenSearchResult = {},
                 onSetInterfaceLanguage = {},
                 onSetSimplifiedCharacters = {},
+                onOpenExternalLink = {},
                 onOpenSubsection = {},
                 onOpenHistoryEntry = {},
                 onNavigateBack = {},
