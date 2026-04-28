@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "mempalace": {
+      "type": "stdio",
+      "command": "/home/ericaspen/.local/bin/uv",
+      "args": [
+        "run",
+        "--directory",
+        "/home/ericaspen/projects/cthulhu/mempalace-mcp-bridge",
+        "python",
+        "scripts/run_mcp_server.py"
+      ]
+    }
+  }
+}
