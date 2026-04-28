@@ -21,7 +21,7 @@ class GetTextResponseDtoTest {
 
         val parsed = json.decodeFromString<GetTextResponseDto>(payload)
 
-        assertNotNull(parsed.error)
-        assertEquals("ERR_INVALID_URN", parsed.error.code)
+        val error = assertNotNull(parsed.error)
+        assertEquals("ERR_INVALID_URN", error.code)
     }
 }

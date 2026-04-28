@@ -5,14 +5,17 @@ import com.easpengren.ctextreader.data.api.GetLinkResponseDto
 import com.easpengren.ctextreader.data.api.GetTextResponseDto
 import com.easpengren.ctextreader.data.api.ReadLinkResponseDto
 import com.easpengren.ctextreader.data.api.StatusResponseDto
+import com.easpengren.ctextreader.data.local.ReaderHistoryStore
 import com.easpengren.ctextreader.domain.model.ApiResult
+import com.easpengren.ctextreader.domain.model.ReaderHistoryEntry
 import com.easpengren.ctextreader.domain.repository.CtextRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class CtextRepositoryImpl @Inject constructor(
-    private val api: CtextApiService
+    private val api: CtextApiService,
+    private val historyStore: ReaderHistoryStore
 ) : CtextRepository {
 
     override suspend fun getStatus(apiKey: String?): ApiResult<StatusResponseDto> {
@@ -31,7 +34,19 @@ class CtextRepositoryImpl @Inject constructor(
         return safeCall { api.getText(urn = urn, apiKey = apiKey) }
     }
 
-    private inline fun <reified T : Any> safeCall(block: () -> T): ApiResult<T> {
+    override suspend fun getHistory(): List<ReaderHistoryEntry> {
+        return historyStore.loadHistory()
+    }
+
+    override suspend fun saveHistoryEntry(entry: ReaderHistoryEntry): List<ReaderHistoryEntry> {
+        return historyStore.save(entry)
+    }
+
+    override suspend fun clearHistory() {
+        historyStore.clear()
+    }
+
+    private suspend fun <T : Any> safeCall(block: suspend () -> T): ApiResult<T> {
         return try {
             val response = block()
             val error = extractError(response)
