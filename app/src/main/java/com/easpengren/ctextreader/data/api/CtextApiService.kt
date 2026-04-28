@@ -7,6 +7,7 @@ interface CtextApiService {
     @GET("getstatus")
     suspend fun getStatus(
         @Query("if") lang: String = "en",
+        @Query("remap") remap: String? = null,
         @Query("apikey") apiKey: String? = null
     ): StatusResponseDto
 
@@ -14,6 +15,7 @@ interface CtextApiService {
     suspend fun readLink(
         @Query("url") url: String,
         @Query("if") lang: String = "en",
+        @Query("remap") remap: String? = null,
         @Query("apikey") apiKey: String? = null
     ): ReadLinkResponseDto
 
@@ -22,6 +24,7 @@ interface CtextApiService {
         @Query("urn") urn: String,
         @Query("redirect") redirect: Int = 0,
         @Query("if") lang: String = "en",
+        @Query("remap") remap: String? = null,
         @Query("apikey") apiKey: String? = null
     ): GetLinkResponseDto
 
@@ -29,6 +32,15 @@ interface CtextApiService {
     suspend fun getText(
         @Query("urn") urn: String,
         @Query("if") lang: String = "en",
+        @Query("remap") remap: String? = null,
         @Query("apikey") apiKey: String? = null
     ): GetTextResponseDto
+
+    @GET("searchtexts")
+    suspend fun searchTexts(
+        @Query("title") title: String,
+        @Query("if") lang: String = "en",
+        @Query("remap") remap: String? = null,
+        @Query("apikey") apiKey: String? = null
+    ): SearchTextsResponseDto
 }

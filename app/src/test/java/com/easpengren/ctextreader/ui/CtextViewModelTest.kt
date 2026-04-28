@@ -3,9 +3,13 @@ package com.easpengren.ctextreader.ui
 import com.easpengren.ctextreader.data.api.GetLinkResponseDto
 import com.easpengren.ctextreader.data.api.GetTextResponseDto
 import com.easpengren.ctextreader.data.api.ReadLinkResponseDto
+import com.easpengren.ctextreader.data.api.SearchTextBookDto
+import com.easpengren.ctextreader.data.api.SearchTextsResponseDto
 import com.easpengren.ctextreader.data.api.StatusResponseDto
 import com.easpengren.ctextreader.domain.model.ApiResult
+import com.easpengren.ctextreader.domain.model.InterfaceLanguage
 import com.easpengren.ctextreader.domain.model.ReaderHistoryEntry
+import com.easpengren.ctextreader.domain.model.ReaderPreferences
 import com.easpengren.ctextreader.domain.repository.CtextRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -56,20 +60,71 @@ class CtextViewModelTest {
         assertEquals(1, state.history.size)
     }
 
+    @Test
+    fun `search updates results and language preference persists`() = runTest {
+        val repository = FakeCtextRepository(
+            searchTextsResult = ApiResult.Success(
+                SearchTextsResponseDto(
+                    books = listOf(SearchTextBookDto(title = "論語", urn = "ctp:analects"))
+                )
+            )
+        )
+        val viewModel = CtextViewModel(repository)
+        dispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.setInterfaceLanguage(InterfaceLanguage.CHINESE)
+        viewModel.updateSearchQuery("論語")
+        viewModel.searchTexts()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals(InterfaceLanguage.CHINESE, state.interfaceLanguage)
+        assertEquals(1, state.searchResults.size)
+        assertEquals("ctp:analects", state.searchResults.first().urn)
+    }
+
     private class FakeCtextRepository(
         private val readLinkResult: ApiResult<ReadLinkResponseDto> = ApiResult.TransportError("unused"),
         private val getTextResult: ApiResult<GetTextResponseDto> = ApiResult.TransportError("unused"),
-        private val getLinkResult: ApiResult<GetLinkResponseDto> = ApiResult.TransportError("unused")
+        private val getLinkResult: ApiResult<GetLinkResponseDto> = ApiResult.TransportError("unused"),
+        private val searchTextsResult: ApiResult<SearchTextsResponseDto> = ApiResult.TransportError("unused")
     ) : CtextRepository {
         private var history = emptyList<ReaderHistoryEntry>()
+        private var preferences = ReaderPreferences()
 
-        override suspend fun getStatus(apiKey: String?): ApiResult<StatusResponseDto> = ApiResult.Success(StatusResponseDto())
+        override suspend fun getStatus(
+            language: InterfaceLanguage,
+            simplified: Boolean,
+            apiKey: String?
+        ): ApiResult<StatusResponseDto> = ApiResult.Success(StatusResponseDto())
 
-        override suspend fun readLink(url: String, apiKey: String?): ApiResult<ReadLinkResponseDto> = readLinkResult
+        override suspend fun readLink(
+            url: String,
+            language: InterfaceLanguage,
+            simplified: Boolean,
+            apiKey: String?
+        ): ApiResult<ReadLinkResponseDto> = readLinkResult
 
-        override suspend fun getLink(urn: String, apiKey: String?): ApiResult<GetLinkResponseDto> = getLinkResult
+        override suspend fun getLink(
+            urn: String,
+            language: InterfaceLanguage,
+            simplified: Boolean,
+            apiKey: String?
+        ): ApiResult<GetLinkResponseDto> = getLinkResult
 
-        override suspend fun getText(urn: String, apiKey: String?): ApiResult<GetTextResponseDto> = getTextResult
+        override suspend fun getText(
+            urn: String,
+            language: InterfaceLanguage,
+            simplified: Boolean,
+            apiKey: String?
+        ): ApiResult<GetTextResponseDto> = getTextResult
+
+        override suspend fun searchTexts(
+            query: String,
+            language: InterfaceLanguage,
+            simplified: Boolean,
+            apiKey: String?
+        ): ApiResult<SearchTextsResponseDto> = searchTextsResult
 
         override suspend fun getHistory(): List<ReaderHistoryEntry> = history
 
@@ -80,6 +135,13 @@ class CtextViewModelTest {
 
         override suspend fun clearHistory() {
             history = emptyList()
+        }
+
+        override suspend fun getPreferences(): ReaderPreferences = preferences
+
+        override suspend fun savePreferences(preferences: ReaderPreferences): ReaderPreferences {
+            this.preferences = preferences
+            return preferences
         }
     }
 }

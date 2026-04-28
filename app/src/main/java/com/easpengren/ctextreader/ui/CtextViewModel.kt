@@ -3,8 +3,11 @@ package com.easpengren.ctextreader.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.easpengren.ctextreader.data.api.GetTextResponseDto
+import com.easpengren.ctextreader.data.api.SearchTextBookDto
 import com.easpengren.ctextreader.domain.model.ApiResult
+import com.easpengren.ctextreader.domain.model.InterfaceLanguage
 import com.easpengren.ctextreader.domain.model.ReaderHistoryEntry
+import com.easpengren.ctextreader.domain.model.ReaderPreferences
 import com.easpengren.ctextreader.domain.repository.CtextRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -18,12 +21,16 @@ import kotlinx.coroutines.launch
 data class CtextUiState(
     val urnInput: String = "ctp:analects/xue-er",
     val urlInput: String = "https://ctext.org/analects/xue-er",
+    val searchQuery: String = "Analects",
     val statusText: String = "Idle",
     val currentUrn: String = "",
     val directLink: String? = null,
     val title: String = "",
     val paragraphs: List<String> = emptyList(),
     val subsections: List<String> = emptyList(),
+    val searchResults: List<SearchTextBookDto> = emptyList(),
+    val interfaceLanguage: InterfaceLanguage = InterfaceLanguage.ENGLISH,
+    val useSimplifiedCharacters: Boolean = false,
     val history: List<ReaderHistoryEntry> = emptyList(),
     val canGoBack: Boolean = false,
     val error: String? = null,
@@ -42,7 +49,15 @@ class CtextViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            _uiState.update { it.copy(history = repository.getHistory()) }
+            val history = repository.getHistory()
+            val preferences = repository.getPreferences()
+            _uiState.update {
+                it.copy(
+                    history = history,
+                    interfaceLanguage = preferences.interfaceLanguage,
+                    useSimplifiedCharacters = preferences.useSimplifiedCharacters
+                )
+            }
         }
     }
 
@@ -54,10 +69,39 @@ class CtextViewModel @Inject constructor(
         _uiState.update { it.copy(urlInput = value) }
     }
 
+    fun updateSearchQuery(value: String) {
+        _uiState.update { it.copy(searchQuery = value) }
+    }
+
+    fun setInterfaceLanguage(language: InterfaceLanguage) {
+        persistPreferences(
+            _uiState.value.copy(
+                interfaceLanguage = language,
+                error = null,
+                statusText = "API language set to ${language.name.lowercase()}"
+            )
+        )
+    }
+
+    fun setSimplifiedCharacters(enabled: Boolean) {
+        persistPreferences(
+            _uiState.value.copy(
+                useSimplifiedCharacters = enabled,
+                error = null,
+                statusText = if (enabled) "Simplified remap enabled" else "Traditional characters enabled"
+            )
+        )
+    }
+
     fun checkStatus() {
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, error = null, statusText = "Checking status...") }
-            when (val result = repository.getStatus()) {
+            when (
+                val result = repository.getStatus(
+                    language = _uiState.value.interfaceLanguage,
+                    simplified = _uiState.value.useSimplifiedCharacters
+                )
+            ) {
                 is ApiResult.Success -> {
                     val status = result.data.status ?: if (result.data.authenticated == true) "authenticated" else "unknown"
                     _uiState.update { it.copy(loading = false, statusText = "Status: $status") }
@@ -97,7 +141,13 @@ class CtextViewModel @Inject constructor(
 
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, error = null, statusText = "Resolving URL...") }
-            when (val result = repository.readLink(url = url)) {
+            when (
+                val result = repository.readLink(
+                    url = url,
+                    language = _uiState.value.interfaceLanguage,
+                    simplified = _uiState.value.useSimplifiedCharacters
+                )
+            ) {
                 is ApiResult.Success -> {
                     val urn = result.data.urn.orEmpty()
                     if (urn.isBlank()) {
@@ -138,6 +188,67 @@ class CtextViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    fun searchTexts() {
+        val query = _uiState.value.searchQuery.trim()
+        if (query.isEmpty()) {
+            _uiState.update { it.copy(error = "Enter a title or keyword to search") }
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    loading = true,
+                    error = null,
+                    statusText = "Searching titles...",
+                    searchResults = emptyList()
+                )
+            }
+            when (
+                val result = repository.searchTexts(
+                    query = query,
+                    language = _uiState.value.interfaceLanguage,
+                    simplified = _uiState.value.useSimplifiedCharacters
+                )
+            ) {
+                is ApiResult.Success -> {
+                    val results = result.data.books.filter { it.urn.isNotBlank() }
+                    _uiState.update {
+                        it.copy(
+                            loading = false,
+                            searchResults = results,
+                            statusText = "Found ${results.size} matching titles",
+                            error = if (results.isEmpty()) "No searchable titles matched your query." else null
+                        )
+                    }
+                }
+                is ApiResult.ApiError -> {
+                    _uiState.update {
+                        it.copy(
+                            loading = false,
+                            error = "${result.code}: ${result.descriptionHtml}",
+                            statusText = "Search failed"
+                        )
+                    }
+                }
+                is ApiResult.TransportError -> {
+                    _uiState.update {
+                        it.copy(
+                            loading = false,
+                            error = result.message,
+                            statusText = "Network error"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun openSearchResult(result: SearchTextBookDto) {
+        _uiState.update { it.copy(urnInput = result.urn) }
+        loadTextInternal(urn = result.urn, pushCurrent = true, persistOnSuccess = true)
     }
 
     fun openSubsection(urn: String) {
@@ -182,10 +293,22 @@ class CtextViewModel @Inject constructor(
                 )
             }
 
-            val textDeferred = async { repository.getText(urn = urn) }
-            val linkDeferred = async { repository.getLink(urn = urn) }
+            val language = _uiState.value.interfaceLanguage
+            val simplified = _uiState.value.useSimplifiedCharacters
+            val linkDeferred = async {
+                repository.getLink(
+                    urn = urn,
+                    language = language,
+                    simplified = simplified
+                )
+            }
+            val textResult = repository.getText(
+                urn = urn,
+                language = language,
+                simplified = simplified
+            )
 
-            when (val textResult = textDeferred.await()) {
+            when (textResult) {
                 is ApiResult.Success -> {
                     val directLink = when (val linkResult = linkDeferred.await()) {
                         is ApiResult.Success -> linkResult.data.link
@@ -271,6 +394,26 @@ class CtextViewModel @Inject constructor(
                     else -> "Loaded"
                 },
                 canGoBack = navigationBackstack.isNotEmpty()
+            )
+        }
+    }
+
+    private fun persistPreferences(state: CtextUiState) {
+        _uiState.update {
+            it.copy(
+                interfaceLanguage = state.interfaceLanguage,
+                useSimplifiedCharacters = state.useSimplifiedCharacters,
+                error = state.error,
+                statusText = state.statusText
+            )
+        }
+
+        viewModelScope.launch {
+            repository.savePreferences(
+                ReaderPreferences(
+                    interfaceLanguage = state.interfaceLanguage,
+                    useSimplifiedCharacters = state.useSimplifiedCharacters
+                )
             )
         }
     }

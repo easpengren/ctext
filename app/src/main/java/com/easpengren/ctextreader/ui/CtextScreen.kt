@@ -17,11 +17,13 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -31,6 +33,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.easpengren.ctextreader.data.api.SearchTextBookDto
+import com.easpengren.ctextreader.domain.model.InterfaceLanguage
 import com.easpengren.ctextreader.domain.model.ReaderHistoryEntry
 import java.time.Instant
 import java.time.ZoneId
@@ -47,6 +51,11 @@ fun CtextScreen(viewModel: CtextViewModel) {
         onCheckStatus = viewModel::checkStatus,
         onLoadUrn = viewModel::loadText,
         onLoadUrl = viewModel::loadFromUrl,
+        onSearchQueryChange = viewModel::updateSearchQuery,
+        onSearchTexts = viewModel::searchTexts,
+        onOpenSearchResult = viewModel::openSearchResult,
+        onSetInterfaceLanguage = viewModel::setInterfaceLanguage,
+        onSetSimplifiedCharacters = viewModel::setSimplifiedCharacters,
         onOpenSubsection = viewModel::openSubsection,
         onOpenHistoryEntry = viewModel::openHistoryEntry,
         onNavigateBack = viewModel::navigateBack,
@@ -63,6 +72,11 @@ fun CtextReaderContent(
     onCheckStatus: () -> Unit,
     onLoadUrn: () -> Unit,
     onLoadUrl: () -> Unit,
+    onSearchQueryChange: (String) -> Unit,
+    onSearchTexts: () -> Unit,
+    onOpenSearchResult: (SearchTextBookDto) -> Unit,
+    onSetInterfaceLanguage: (InterfaceLanguage) -> Unit,
+    onSetSimplifiedCharacters: (Boolean) -> Unit,
     onOpenSubsection: (String) -> Unit,
     onOpenHistoryEntry: (ReaderHistoryEntry) -> Unit,
     onNavigateBack: () -> Unit,
@@ -137,6 +151,67 @@ fun CtextReaderContent(
                                     }
                                 }
                             }
+                            Text(
+                                text = "API language",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(
+                                    selected = state.interfaceLanguage == InterfaceLanguage.ENGLISH,
+                                    onClick = { onSetInterfaceLanguage(InterfaceLanguage.ENGLISH) },
+                                    label = { Text("English") }
+                                )
+                                FilterChip(
+                                    selected = state.interfaceLanguage == InterfaceLanguage.CHINESE,
+                                    onClick = { onSetInterfaceLanguage(InterfaceLanguage.CHINESE) },
+                                    label = { Text("Chinese") }
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column {
+                                    Text("Simplified remap")
+                                    Text(
+                                        text = "Uses API remap=gb where supported",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                                Switch(
+                                    checked = state.useSimplifiedCharacters,
+                                    onCheckedChange = onSetSimplifiedCharacters
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Card {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = "Search Titles",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+
+                            OutlinedTextField(
+                                value = state.searchQuery,
+                                onValueChange = onSearchQueryChange,
+                                label = { Text("English or Chinese title") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            OutlinedButton(onClick = onSearchTexts, enabled = !state.loading) {
+                                Text("Search")
+                            }
                         }
                     }
                 }
@@ -209,6 +284,31 @@ fun CtextReaderContent(
                                 modifier = Modifier.padding(12.dp),
                                 style = MaterialTheme.typography.bodyMedium
                             )
+                        }
+                    }
+                }
+
+                if (state.searchResults.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "Search Results",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    items(state.searchResults, key = { it.urn + it.title }) { result ->
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = !state.loading) { onOpenSearchResult(result) }
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(text = result.title, fontWeight = FontWeight.SemiBold)
+                                Text(text = result.urn, style = MaterialTheme.typography.bodySmall)
+                            }
                         }
                     }
                 }

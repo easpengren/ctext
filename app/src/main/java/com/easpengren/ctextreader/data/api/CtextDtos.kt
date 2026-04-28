@@ -35,3 +35,15 @@ data class StatusResponseDto(
     val authenticated: Boolean? = null,
     val error: CtextErrorDto? = null
 )
+
+@Serializable
+data class SearchTextBookDto(
+    val title: String,
+    val urn: String = ""
+)
+
+@Serializable
+data class SearchTextsResponseDto(
+    val books: List<SearchTextBookDto> = emptyList(),
+    val error: CtextErrorDto? = null
+)
